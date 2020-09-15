@@ -364,6 +364,7 @@ def flush_streams(
             row_count=row_count,
             db_sync=stream_to_sync[stream],
             no_compression=config.get('no_compression'),
+            retain_s3_files=config.get('retain_s3_files'),
             delete_rows=config.get('hard_delete'),
             temp_dir=config.get('temp_dir')
         ) for stream in streams_to_flush)
@@ -390,11 +391,11 @@ def flush_streams(
     return flushed_state
 
 
-def load_stream_batch(stream, records_to_load, row_count, db_sync, no_compression=False, delete_rows=False,
-                      temp_dir=None):
+def load_stream_batch(stream, records_to_load, row_count, db_sync, no_compression=False,
+                      retain_s3_files=False, delete_rows=False, temp_dir=None):
     # Load into snowflake
     if row_count[stream] > 0:
-        flush_records(stream, records_to_load, row_count[stream], db_sync, temp_dir, no_compression)
+        flush_records(stream, records_to_load, row_count[stream], db_sync, temp_dir, no_compression, retain_s3_files)
 
         # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
         if delete_rows:
@@ -410,17 +411,18 @@ def write_record_to_file(outfile, records_to_load, record_to_csv_line_transforme
         outfile.write(bytes(csv_line + '\n', 'UTF-8'))
 
 
-def flush_records(stream, records_to_load, row_count, db_sync, temp_dir=None, no_compression=False):
+def flush_records(stream, records_to_load, row_count, db_sync, temp_dir=None,
+                  no_compression=False, retain_s3_files=False):
     if temp_dir:
         os.makedirs(temp_dir, exist_ok=True)
-    csv_fd, csv_file = mkstemp(suffix='.csv', prefix='records_', dir=temp_dir)
     record_to_csv_line_transformer = db_sync.record_to_csv_line
-
     # Using gzip or plain file object
     if no_compression:
+        csv_fd, csv_file = mkstemp(suffix='.csv', prefix='records_', dir=temp_dir)
         with open(csv_fd, 'wb') as outfile:
             write_record_to_file(outfile, records_to_load, record_to_csv_line_transformer)
     else:
+        csv_fd, csv_file = mkstemp(suffix='.csv.gz', prefix='records_', dir=temp_dir)
         with gzip.open(csv_file, 'wb') as outfile:
             write_record_to_file(outfile, records_to_load, record_to_csv_line_transformer)
 
@@ -428,8 +430,10 @@ def flush_records(stream, records_to_load, row_count, db_sync, temp_dir=None, no
     s3_key = db_sync.put_to_stage(csv_file, stream, row_count, temp_dir=temp_dir)
     db_sync.load_csv(s3_key, row_count, size_bytes)
 
+    os.close(csv_fd)
     os.remove(csv_file)
-    db_sync.delete_from_stage(s3_key)
+    if not retain_s3_files:
+        db_sync.delete_from_stage(s3_key)
 
 
 def main():

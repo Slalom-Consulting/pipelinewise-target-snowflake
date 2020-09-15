@@ -140,6 +140,8 @@ Full list of options in `config.json`:
 | s3_endpoint_url                     | String  | No         | The complete URL to use for the constructed client. This is allowing to use non-native s3 account. |
 | s3_region_name                      | String  | No         | Default region when creating new connections |
 | s3_acl                              | String  | No         | S3 ACL name to set on the uploaded files                                                   |
+| s3_file_naming_scheme               | String  | No         | (Default: `pipelinewise_{stream}_{timecode}.{ext}`) A parameterized string which specifies how each file should be named in S3. Variables allowed are: `{stream}`, `{timecode}`, and `{ext}` |
+| retain_s3_files                     | Boolean | No         | (Default: False) Specify 'True' to keep files in S3 after importing is complete. Default behavior is False, which removes all files from S3 after loading. |
 | stage                               | String  | Yes        | Named external stage name created at pre-requirements section. Has to be a fully qualified name including the schema name |
 | file_format                         | String  | Yes        | Named file format name created at pre-requirements section. Has to be a fully qualified name including the schema name. |
 | batch_size_rows                     | Integer |            | (Default: 100000) Maximum number of rows in each batch. At the end of each batch, the rows in the batch are loaded into Snowflake. |
