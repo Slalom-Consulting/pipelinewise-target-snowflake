@@ -21,7 +21,6 @@ class TooManyRecordsException(Exception):
 
 
 def validate_config(config):
-    errors = []
     required_config_keys = [
         'account',
         'dbname',
@@ -33,10 +32,11 @@ def validate_config(config):
         'file_format'
     ]
 
-    # Check if mandatory keys exist
-    for k in required_config_keys:
-        if not config.get(k, None):
-            errors.append("Required key is missing from config: [{}]".format(k))
+    errors = [
+        f"Required key is missing from config: [{k}]"
+        for k in required_config_keys
+        if not config.get(k, None)
+    ]
 
     # Check target schema config
     config_default_target_schema = config.get('default_target_schema', None)
@@ -91,11 +91,11 @@ def column_trans(schema_property):
 
 
 def safe_column_name(name):
-    return '"{}"'.format(name).upper()
+    return f'"{name}"'.upper()
 
 
 def column_clause(name, schema_property):
-    return '{} {}'.format(safe_column_name(name), column_type(schema_property))
+    return f'{safe_column_name(name)} {column_type(schema_property)}'
 
 
 def flatten_key(k, parent_key, sep):
@@ -104,8 +104,12 @@ def flatten_key(k, parent_key, sep):
     reducer_index = 0
     while len(sep.join(inflected_key)) >= 255 and reducer_index < len(inflected_key):
         reduced_key = re.sub(r'[a-z]', '', inflection.camelize(inflected_key[reducer_index]))
-        inflected_key[reducer_index] = \
-            (reduced_key if len(reduced_key) > 1 else inflected_key[reducer_index][0:3]).lower()
+        inflected_key[reducer_index] = (
+            reduced_key
+            if len(reduced_key) > 1
+            else inflected_key[reducer_index][:3]
+        ).lower()
+
         reducer_index += 1
 
     return sep.join(inflected_key)
@@ -124,23 +128,22 @@ def flatten_schema(d, parent_key=[], sep='__', level=0, max_level=0):
                 items.extend(flatten_schema(v, parent_key + [k], sep=sep, level=level+1, max_level=max_level).items())
             else:
                 items.append((new_key, v))
-        else:
-            if len(v.values()) > 0:
-                if list(v.values())[0][0]['type'] == 'string':
-                    list(v.values())[0][0]['type'] = ['null', 'string']
-                    items.append((new_key, list(v.values())[0][0]))
-                elif list(v.values())[0][0]['type'] == 'array':
-                    list(v.values())[0][0]['type'] = ['null', 'array']
-                    items.append((new_key, list(v.values())[0][0]))
-                elif list(v.values())[0][0]['type'] == 'object':
-                    list(v.values())[0][0]['type'] = ['null', 'object']
-                    items.append((new_key, list(v.values())[0][0]))
+        elif len(v.values()) > 0:
+            if list(v.values())[0][0]['type'] == 'string':
+                list(v.values())[0][0]['type'] = ['null', 'string']
+                items.append((new_key, list(v.values())[0][0]))
+            elif list(v.values())[0][0]['type'] == 'array':
+                list(v.values())[0][0]['type'] = ['null', 'array']
+                items.append((new_key, list(v.values())[0][0]))
+            elif list(v.values())[0][0]['type'] == 'object':
+                list(v.values())[0][0]['type'] = ['null', 'object']
+                items.append((new_key, list(v.values())[0][0]))
 
     key_func = lambda item: item[0]
     sorted_items = sorted(items, key=key_func)
     for k, g in itertools.groupby(sorted_items, key=key_func):
         if len(list(g)) > 1:
-            raise ValueError('Duplicate column name produced in schema: {}'.format(k))
+            raise ValueError(f'Duplicate column name produced in schema: {k}')
 
     return dict(sorted_items)
 
@@ -148,10 +151,12 @@ def _should_json_dump_value(key, value, flatten_schema=None):
     if isinstance(value, (dict, list)):
         return True
 
-    if flatten_schema and key in flatten_schema and 'type' in flatten_schema[key] and set(flatten_schema[key]['type']) == {'null', 'object', 'array'}:
-        return True
-
-    return False
+    return bool(
+        flatten_schema
+        and key in flatten_schema
+        and 'type' in flatten_schema[key]
+        and set(flatten_schema[key]['type']) == {'null', 'object', 'array'}
+    )
 
 #pylint: disable-msg=too-many-arguments
 def flatten_record(d, flatten_schema=None, parent_key=[], sep='__', level=0, max_level=0):
@@ -263,7 +268,10 @@ class DbSync:
                 self.schema_name = config_default_target_schema
 
             if not self.schema_name:
-                raise Exception("Target schema name not defined in config. Neither 'default_target_schema' (string) nor 'schema_mapping' (object) defines target schema for {} stream.".format(stream_name))
+                raise Exception(
+                    f"Target schema name not defined in config. Neither 'default_target_schema' (string) nor 'schema_mapping' (object) defines target schema for {stream_name} stream."
+                )
+
 
             #  Define grantees
             #  ---------------
@@ -344,7 +352,7 @@ class DbSync:
                     queries = [query]
 
                 for q in queries:
-                    self.logger.debug("Running query: {}".format(q))
+                    self.logger.debug(f"Running query: {q}")
                     cur.execute(q, params)
 
                     # Raise exception if returned rows greater than max allowed records
@@ -362,7 +370,7 @@ class DbSync:
         sf_table_name = table_name.replace('.', '_').replace('-', '_').lower()
 
         if is_temporary:
-            sf_table_name = '{}_temp'.format(sf_table_name)
+            sf_table_name = f'{sf_table_name}_temp'
 
         if without_schema:
             return f'"{sf_table_name.upper()}"'
@@ -376,13 +384,15 @@ class DbSync:
         try:
             key_props = [str(flatten[p]) for p in self.stream_schema_message['key_properties']]
         except Exception as exc:
-            self.logger.error("Cannot find {} primary key(s) in record: {}".format(self.stream_schema_message['key_properties'],
-                                                                     flatten))
+            self.logger.error(
+                f"Cannot find {self.stream_schema_message['key_properties']} primary key(s) in record: {flatten}"
+            )
+
             raise exc
         return ','.join(key_props)
 
     def get_csv_header_line(self):
-        return ','.join([name for name in self.flatten_schema])
+        return ','.join(list(self.flatten_schema))
 
     def record_to_csv_line(self, record):
         flatten = flatten_record(record, self.flatten_schema, max_level=self.data_flattening_max_level)
@@ -395,7 +405,7 @@ class DbSync:
         )
 
     def put_to_stage(self, file, stream, count, temp_dir=None):
-        self.logger.info("Uploading {} rows to external snowflake stage on S3".format(count))
+        self.logger.info(f"Uploading {count} rows to external snowflake stage on S3")
 
         # Generating key in S3 bucket
         bucket = self.connection_config['s3_bucket']
@@ -412,9 +422,12 @@ class DbSync:
         }.items():
             if k in s3_file_name:
                 s3_file_name = s3_file_name.replace(k, v)
-        s3_key = "{}{}".format(s3_key_prefix, s3_file_name)
+        s3_key = f"{s3_key_prefix}{s3_file_name}"
 
-        self.logger.info("Target S3 bucket: {}, local file: {}, S3 key: {}".format(bucket, file, s3_key))
+        self.logger.info(
+            f"Target S3 bucket: {bucket}, local file: {file}, S3 key: {s3_key}"
+        )
+
 
         # Encrypt csv if client side encryption enabled
         master_key = self.connection_config.get('client_side_encryption_master_key', '')
@@ -432,7 +445,7 @@ class DbSync:
             )
 
             # Upload to s3
-            extra_args = {'ACL': s3_acl} if s3_acl else dict()
+            extra_args = {'ACL': s3_acl} if s3_acl else {}
 
             # Send key and iv in the metadata, that will be required to decrypt and upload the encrypted file
             extra_args['Metadata'] = {
@@ -444,7 +457,6 @@ class DbSync:
             # Remove the uploaded encrypted file
             os.remove(encrypted_file)
 
-        # Upload to S3 without encrypting
         else:
             extra_args = {'ACL': s3_acl} if s3_acl else None
             self.s3.upload_file(file, bucket, s3_key, ExtraArgs=extra_args)
@@ -452,14 +464,17 @@ class DbSync:
         return s3_key
 
     def delete_from_stage(self, s3_key):
-        self.logger.info("Deleting {} from external snowflake stage on S3".format(s3_key))
+        self.logger.info(f"Deleting {s3_key} from external snowflake stage on S3")
         bucket = self.connection_config['s3_bucket']
         self.s3.delete_object(Bucket=bucket, Key=s3_key)
 
     def load_csv(self, s3_key, count, size_bytes):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
-        self.logger.info("Loading {} rows into '{}'".format(count, self.table_name(stream, False)))
+        self.logger.info(
+            f"Loading {count} rows into '{self.table_name(stream, False)}'"
+        )
+
 
         # Get list if columns with types
         columns_with_trans = [
@@ -491,16 +506,27 @@ class DbSync:
                             VALUES ({})
                     """.format(
                         self.table_name(stream, False),
-                        ', '.join(["{}(${}) {}".format(c['trans'], i + 1, c['name']) for i, c in enumerate(columns_with_trans)]),
+                        ', '.join(
+                            [
+                                f"{c['trans']}(${i + 1}) {c['name']}"
+                                for i, c in enumerate(columns_with_trans)
+                            ]
+                        ),
                         self.connection_config['stage'],
                         s3_key,
                         self.connection_config['file_format'],
                         self.primary_key_merge_condition(),
-                        ', '.join(['{}=s.{}'.format(c['name'], c['name']) for c in columns_with_trans]),
+                        ', '.join(
+                            [
+                                f"{c['name']}=s.{c['name']}"
+                                for c in columns_with_trans
+                            ]
+                        ),
                         ', '.join([c['name'] for c in columns_with_trans]),
-                        ', '.join(['s.{}'.format(c['name']) for c in columns_with_trans])
+                        ', '.join([f"s.{c['name']}" for c in columns_with_trans]),
                     )
-                    self.logger.debug("Running query: {}".format(merge_sql))
+
+                    self.logger.debug(f"Running query: {merge_sql}")
                     cur.execute(merge_sql)
 
                     # Get number of inserted and updated records - MERGE does insert and update
@@ -509,7 +535,6 @@ class DbSync:
                         inserts = results[0].get('number of rows inserted', 0)
                         updates = results[0].get('number of rows updated', 0)
 
-                # Insert only with COPY command if no primary key
                 else:
                     copy_sql = """COPY INTO {} ({}) FROM '@{}/{}'
                         FILE_FORMAT = (format_name='{}')
@@ -520,7 +545,7 @@ class DbSync:
                         s3_key,
                         self.connection_config['file_format'],
                     )
-                    self.logger.debug("Running query: {}".format(copy_sql))
+                    self.logger.debug(f"Running query: {copy_sql}")
                     cur.execute(copy_sql)
 
                     # Get number of inserted records - COPY does insert only
@@ -535,7 +560,7 @@ class DbSync:
     def primary_key_merge_condition(self):
         stream_schema_message = self.stream_schema_message
         names = primary_column_names(stream_schema_message)
-        return ' AND '.join(['s.{} = t.{}'.format(c, c) for c in names])
+        return ' AND '.join([f's.{c} = t.{c}' for c in names])
 
     def column_names(self):
         return [safe_column_name(name) for name in self.flatten_schema]
@@ -550,29 +575,35 @@ class DbSync:
             for (name, schema) in self.flatten_schema.items()
         ]
 
-        primary_key = ["PRIMARY KEY ({})".format(', '.join(primary_column_names(stream_schema_message)))] \
-            if len(stream_schema_message['key_properties']) else []
-
-        return 'CREATE {}TABLE IF NOT EXISTS {} ({}) {}'.format(
-            'TEMP ' if is_temporary else '',
-            self.table_name(stream_schema_message['stream'], is_temporary),
-            ', '.join(columns + primary_key),
-            'data_retention_time_in_days = 0 ' if is_temporary else 'data_retention_time_in_days = 1 '
+        primary_key = (
+            [
+                f"PRIMARY KEY ({', '.join(primary_column_names(stream_schema_message))})"
+            ]
+            if len(stream_schema_message['key_properties'])
+            else []
         )
 
+
+        return f"CREATE {'TEMP ' if is_temporary else ''}TABLE IF NOT EXISTS {self.table_name(stream_schema_message['stream'], is_temporary)} ({', '.join(columns + primary_key)}) {'data_retention_time_in_days = 0 ' if is_temporary else 'data_retention_time_in_days = 1 '}"
+
     def grant_usage_on_schema(self, schema_name, grantee):
-        query = "GRANT USAGE ON SCHEMA {} TO ROLE {}".format(schema_name, grantee)
-        self.logger.info("Granting USAGE privilege on '{}' schema to '{}'... {}".format(schema_name, grantee, query))
+        query = f"GRANT USAGE ON SCHEMA {schema_name} TO ROLE {grantee}"
+        self.logger.info(
+            f"Granting USAGE privilege on '{schema_name}' schema to '{grantee}'... {query}"
+        )
+
         self.query(query)
 
     def grant_select_on_all_tables_in_schema(self, schema_name, grantee):
-        query = "GRANT SELECT ON ALL TABLES IN SCHEMA {} TO ROLE {}".format(schema_name, grantee)
+        query = f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema_name} TO ROLE {grantee}"
         self.logger.info(
-            "Granting SELECT ON ALL TABLES privilege on '{}' schema to '{}'... {}".format(schema_name, grantee, query))
+            f"Granting SELECT ON ALL TABLES privilege on '{schema_name}' schema to '{grantee}'... {query}"
+        )
+
         self.query(query)
 
     @classmethod
-    def grant_privilege(self, schema, grantees, grant_method):
+    def grant_privilege(cls, schema, grantees, grant_method):
         if isinstance(grantees, list):
             for grantee in grantees:
                 grant_method(schema, grantee)
@@ -581,9 +612,9 @@ class DbSync:
 
     def delete_rows(self, stream):
         table = self.table_name(stream, False)
-        query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table)
-        self.logger.info("Deleting rows from '{}' table... {}".format(table, query))
-        self.logger.info("DELETE {}".format(len(self.query(query))))
+        query = f"DELETE FROM {table} WHERE _sdc_deleted_at IS NOT NULL"
+        self.logger.info(f"Deleting rows from '{table}' table... {query}")
+        self.logger.info(f"DELETE {len(self.query(query))}")
 
     def create_schema_if_not_exists(self):
         schema_name = self.schema_name
@@ -597,8 +628,8 @@ class DbSync:
             schema_rows = self.query(f"SHOW SCHEMAS LIKE '{schema_name.upper()}'")
 
         if len(schema_rows) == 0:
-            query = "CREATE SCHEMA IF NOT EXISTS {}".format(schema_name)
-            self.logger.info("Schema '{}' does not exist. Creating... {}".format(schema_name, query))
+            query = f"CREATE SCHEMA IF NOT EXISTS {schema_name}"
+            self.logger.info(f"Schema '{schema_name}' does not exist. Creating... {query}")
             self.query(query)
 
             self.grant_privilege(schema_name, self.grantees, self.grant_usage_on_schema)
@@ -609,49 +640,40 @@ class DbSync:
 
     def get_tables(self, table_schemas=[]):
         tables = []
-        if table_schemas:
-            for schema in table_schemas:
-                queries = []
-
-                # Get column data types by SHOW COLUMNS
-                show_tables = f"SHOW TERSE TABLES IN SCHEMA {self.connection_config['dbname']}.{schema}"
+        if not table_schemas:
+            raise Exception("Cannot get table columns. List of table schemas empty")
 
                 # Convert output of SHOW TABLES to table
-                select = f"""
+        select = """
                     SELECT "schema_name" AS schema_name
                           ,"name"        AS table_name
                       FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
                 """
-                queries.extend([show_tables, select])
 
+        for schema in table_schemas:
+            # Get column data types by SHOW COLUMNS
+            show_tables = f"SHOW TERSE TABLES IN SCHEMA {self.connection_config['dbname']}.{schema}"
+
+            queries = [show_tables, select]
                 # Run everything in one transaction
-                try:
-                    tables = self.query(queries, max_records=9999)
+            try:
+                tables = self.query(queries, max_records=9999)
 
-                # Catch exception when schema not exists and SHOW TABLES throws a ProgrammingError
-                # Regexp to extract snowflake error code and message from the exception message
-                # Do nothing if schema not exists
-                except snowflake.connector.errors.ProgrammingError as exc:
-                    if re.match('002043 \(02000\):.*\n.*does not exist.*', str(sys.exc_info()[1])):
-                        pass
-                    else:
-                        raise exc
-        else:
-            raise Exception("Cannot get table columns. List of table schemas empty")
-
+            except snowflake.connector.errors.ProgrammingError as exc:
+                if not re.match(
+                    '002043 \(02000\):.*\n.*does not exist.*',
+                    str(sys.exc_info()[1]),
+                ):
+                    raise exc
         return tables
 
     def get_table_columns(self, table_schemas=[]):
         table_columns = []
-        if table_schemas:
-            for schema in table_schemas:
-                queries = []
-
-                # Get column data types by SHOW COLUMNS
-                show_columns = f"SHOW COLUMNS IN SCHEMA {self.connection_config['dbname']}.{schema}"
+        if not table_schemas:
+            raise Exception("Cannot get table columns. List of table schemas empty")
 
                 # Convert output of SHOW COLUMNS to table and insert results into the cache COLUMNS table
-                select = f"""
+        select = """
                     SELECT "schema_name" AS schema_name
                           ,"table_name"  AS table_name
                           ,"column_name" AS column_name
@@ -669,24 +691,23 @@ class DbSync:
                            END data_type
                       FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
                 """
-                queries.extend([show_columns, select])
 
+        for schema in table_schemas:
+            # Get column data types by SHOW COLUMNS
+            show_columns = f"SHOW COLUMNS IN SCHEMA {self.connection_config['dbname']}.{schema}"
+
+            queries = [show_columns, select]
                 # Run everything in one transaction
-                try:
-                    columns = self.query(queries, max_records=9999)
-                    table_columns.extend(columns)
+            try:
+                columns = self.query(queries, max_records=9999)
+                table_columns.extend(columns)
 
-                # Catch exception when schema not exists and SHOW COLUMNS throws a ProgrammingError
-                # Regexp to extract snowflake error code and message from the exception message
-                # Do nothing if schema not exists
-                except snowflake.connector.errors.ProgrammingError as exc:
-                    if re.match('002003 \(02000\):.*\n.*does not exist or not authorized.*', str(sys.exc_info()[1])):
-                        pass
-                    else:
-                        raise exc
-
-        else:
-            raise Exception("Cannot get table columns. List of table schemas empty")
+            except snowflake.connector.errors.ProgrammingError as exc:
+                if not re.match(
+                    '002003 \(02000\):.*\n.*does not exist or not authorized.*',
+                    str(sys.exc_info()[1]),
+                ):
+                    raise exc
 
         return table_columns
 
@@ -699,10 +720,9 @@ class DbSync:
         table_name = self.table_name(stream, False, True)
         all_table_columns = []
 
-        if self.table_cache:
-            all_table_columns = self.table_cache
-        else:
-            all_table_columns = self.get_table_columns(table_schemas=[self.schema_name])
+        all_table_columns = self.table_cache or self.get_table_columns(
+            table_schemas=[self.schema_name]
+        )
 
         # Find the specific table
         columns = list(filter(lambda x: x['SCHEMA_NAME'] == self.schema_name.upper() and
@@ -751,22 +771,26 @@ class DbSync:
             self.add_column(column, stream)
 
         # Refresh table cache if required
-        if self.table_cache and (len(columns_to_add) > 0 or len(columns_to_replace)):
+        if self.table_cache and (columns_to_add or len(columns_to_replace)):
             self.table_cache = self.get_table_columns(table_schemas=[self.schema_name])
 
     def drop_column(self, column_name, stream):
-        drop_column = "ALTER TABLE {} DROP COLUMN {}".format(self.table_name(stream, False), column_name)
-        self.logger.info('Dropping column: {}'.format(drop_column))
+        drop_column = f"ALTER TABLE {self.table_name(stream, False)} DROP COLUMN {column_name}"
+
+        self.logger.info(f'Dropping column: {drop_column}')
         self.query(drop_column)
 
     def version_column(self, column_name, stream):
         version_column = "ALTER TABLE {} RENAME COLUMN {} TO \"{}_{}\"".format(self.table_name(stream, False), column_name, column_name.replace("\"",""), time.strftime("%Y%m%d_%H%M"))
-        self.logger.info('Dropping column: {}'.format(version_column))
+        self.logger.info(f'Dropping column: {version_column}')
         self.query(version_column)
 
     def add_column(self, column, stream):
-        add_column = "ALTER TABLE {} ADD COLUMN {}".format(self.table_name(stream, False), column)
-        self.logger.info('Adding column: {}'.format(add_column))
+        add_column = (
+            f"ALTER TABLE {self.table_name(stream, False)} ADD COLUMN {column}"
+        )
+
+        self.logger.info(f'Adding column: {add_column}')
         self.query(add_column)
 
     def sync_table(self):
@@ -783,9 +807,12 @@ class DbSync:
             found_tables = [table for table in (self.get_tables([self.schema_name.upper()]))
                             if f'"{table["TABLE_NAME"].upper()}"' == table_name]
 
-        if len(found_tables) == 0:
+        if not found_tables:
             query = self.create_table_query()
-            self.logger.info("Table '{}' does not exist. Creating...".format(table_name_with_schema))
+            self.logger.info(
+                f"Table '{table_name_with_schema}' does not exist. Creating..."
+            )
+
             self.query(query)
 
             self.grant_privilege(self.schema_name, self.grantees, self.grant_select_on_all_tables_in_schema)
@@ -794,5 +821,5 @@ class DbSync:
             if self.table_cache:
                 self.table_cache = self.get_table_columns(table_schemas=[self.schema_name])
         else:
-            self.logger.info("Table '{}' exists".format(table_name_with_schema))
+            self.logger.info(f"Table '{table_name_with_schema}' exists")
             self.update_columns()

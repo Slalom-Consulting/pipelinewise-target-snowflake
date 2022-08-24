@@ -37,7 +37,9 @@ class TestIntegration(unittest.TestCase):
 
         # Drop target schema
         if self.config['default_target_schema']:
-            snowflake.query("DROP SCHEMA IF EXISTS {}".format(self.config['default_target_schema']))
+            snowflake.query(
+                f"DROP SCHEMA IF EXISTS {self.config['default_target_schema']}"
+            )
 
     def persist_lines(self, lines):
         """Loads singer messages into snowflake without table caching option"""
@@ -104,9 +106,18 @@ class TestIntegration(unittest.TestCase):
             target_schema = "tap_mysql_test"
 
         # Get loaded rows from tables
-        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(target_schema))
+        table_one = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_one ORDER BY c_pk"
+        )
+
+        table_two = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_two ORDER BY c_pk"
+        )
+
+        table_three = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_three ORDER BY c_pk"
+        )
+
 
         # ----------------------------------------------------------------------
         # Check rows in table_one
@@ -122,15 +133,31 @@ class TestIntegration(unittest.TestCase):
         # Check rows in table_tow
         # ----------------------------------------------------------------------
         expected_table_two = []
-        if not should_hard_deleted_rows:
-            expected_table_two = [
-                {'C_INT': 1, 'C_PK': 1, 'C_VARCHAR': '1', 'C_DATE': datetime.datetime(2019, 2, 1, 15, 12, 45)},
-                {'C_INT': 2, 'C_PK': 2, 'C_VARCHAR': '2', 'C_DATE': datetime.datetime(2019, 2, 10, 2, 0, 0)}
+        expected_table_two = (
+            [
+                {
+                    'C_INT': 2,
+                    'C_PK': 2,
+                    'C_VARCHAR': '2',
+                    'C_DATE': datetime.datetime(2019, 2, 10, 2, 0, 0),
+                }
             ]
-        else:
-            expected_table_two = [
-                {'C_INT': 2, 'C_PK': 2, 'C_VARCHAR': '2', 'C_DATE': datetime.datetime(2019, 2, 10, 2, 0, 0)}
+            if should_hard_deleted_rows
+            else [
+                {
+                    'C_INT': 1,
+                    'C_PK': 1,
+                    'C_VARCHAR': '1',
+                    'C_DATE': datetime.datetime(2019, 2, 1, 15, 12, 45),
+                },
+                {
+                    'C_INT': 2,
+                    'C_PK': 2,
+                    'C_VARCHAR': '2',
+                    'C_DATE': datetime.datetime(2019, 2, 10, 2, 0, 0),
+                },
             ]
+        )
 
         self.assertEqual(
             self.remove_metadata_columns_from_rows(table_two), expected_table_two)
@@ -139,17 +166,43 @@ class TestIntegration(unittest.TestCase):
         # Check rows in table_three
         # ----------------------------------------------------------------------
         expected_table_three = []
-        if not should_hard_deleted_rows:
-            expected_table_three = [
-                {'C_INT': 1, 'C_PK': 1, 'C_VARCHAR': '1', 'C_TIME': datetime.time(4, 0, 0)},
-                {'C_INT': 2, 'C_PK': 2, 'C_VARCHAR': '2', 'C_TIME': datetime.time(7, 15, 0)},
-                {'C_INT': 3, 'C_PK': 3, 'C_VARCHAR': '3', 'C_TIME': datetime.time(23, 0, 3)}
+        expected_table_three = (
+            [
+                {
+                    'C_INT': 1,
+                    'C_PK': 1,
+                    'C_VARCHAR': '1',
+                    'C_TIME': datetime.time(4, 0, 0),
+                },
+                {
+                    'C_INT': 2,
+                    'C_PK': 2,
+                    'C_VARCHAR': '2',
+                    'C_TIME': datetime.time(7, 15, 0),
+                },
             ]
-        else:
-            expected_table_three = [
-                {'C_INT': 1, 'C_PK': 1, 'C_VARCHAR': '1', 'C_TIME': datetime.time(4, 0, 0)},
-                {'C_INT': 2, 'C_PK': 2, 'C_VARCHAR': '2', 'C_TIME': datetime.time(7, 15, 0)}
+            if should_hard_deleted_rows
+            else [
+                {
+                    'C_INT': 1,
+                    'C_PK': 1,
+                    'C_VARCHAR': '1',
+                    'C_TIME': datetime.time(4, 0, 0),
+                },
+                {
+                    'C_INT': 2,
+                    'C_PK': 2,
+                    'C_VARCHAR': '2',
+                    'C_TIME': datetime.time(7, 15, 0),
+                },
+                {
+                    'C_INT': 3,
+                    'C_PK': 3,
+                    'C_VARCHAR': '3',
+                    'C_TIME': datetime.time(23, 0, 3),
+                },
             ]
+        )
 
         self.assertEqual(
             self.remove_metadata_columns_from_rows(table_three), expected_table_three)
@@ -170,10 +223,22 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.logical1_table1 ORDER BY CID".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.logical1_table2 ORDER BY CID".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.logical2_table1 ORDER BY CID".format(target_schema))
-        table_four = snowflake.query("SELECT CID, CTIMENTZ, CTIMETZ FROM {}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID".format(target_schema))
+        table_one = snowflake.query(
+            f"SELECT * FROM {target_schema}.logical1_table1 ORDER BY CID"
+        )
+
+        table_two = snowflake.query(
+            f"SELECT * FROM {target_schema}.logical1_table2 ORDER BY CID"
+        )
+
+        table_three = snowflake.query(
+            f"SELECT * FROM {target_schema}.logical2_table1 ORDER BY CID"
+        )
+
+        table_four = snowflake.query(
+            f"SELECT CID, CTIMENTZ, CTIMETZ FROM {target_schema}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID"
+        )
+
 
         # ----------------------------------------------------------------------
         # Check rows in table_one
@@ -226,21 +291,33 @@ class TestIntegration(unittest.TestCase):
             self.assertEqual(self.remove_metadata_columns_from_rows(table_one), expected_table_one)
             self.assertEqual(self.remove_metadata_columns_from_rows(table_two), expected_table_two)
             self.assertEqual(self.remove_metadata_columns_from_rows(table_three), expected_table_three)
-            self.assertEqual(table_four, expected_table_four)
         else:
             self.assertEqual(table_one, expected_table_one)
             self.assertEqual(table_two, expected_table_two)
             self.assertEqual(table_three, expected_table_three)
-            self.assertEqual(table_four, expected_table_four)
+
+        self.assertEqual(table_four, expected_table_four)
 
     def assert_logical_streams_are_in_snowflake_and_are_empty(self):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.logical1_table1 ORDER BY CID".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.logical1_table2 ORDER BY CID".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.logical2_table1 ORDER BY CID".format(target_schema))
-        table_four = snowflake.query("SELECT CID, CTIMENTZ, CTIMETZ FROM {}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID".format(target_schema))
+        table_one = snowflake.query(
+            f"SELECT * FROM {target_schema}.logical1_table1 ORDER BY CID"
+        )
+
+        table_two = snowflake.query(
+            f"SELECT * FROM {target_schema}.logical1_table2 ORDER BY CID"
+        )
+
+        table_three = snowflake.query(
+            f"SELECT * FROM {target_schema}.logical2_table1 ORDER BY CID"
+        )
+
+        table_four = snowflake.query(
+            f"SELECT CID, CTIMENTZ, CTIMETZ FROM {target_schema}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID"
+        )
+
 
         self.assertEqual(table_one, [])
         self.assertEqual(table_two, [])
@@ -251,7 +328,10 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.{} ORDER BY ID".format(target_schema, table_name))
+        table_one = snowflake.query(
+            f"SELECT * FROM {target_schema}.{table_name} ORDER BY ID"
+        )
+
 
         # ----------------------------------------------------------------------
         # Check rows in table_one
@@ -444,7 +524,10 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_unicode = snowflake.query("SELECT * FROM {}.test_table_unicode ORDER BY C_INT".format(target_schema))
+        table_unicode = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_unicode ORDER BY C_INT"
+        )
+
 
         self.assertEqual(
             table_unicode,
@@ -469,7 +552,9 @@ class TestIntegration(unittest.TestCase):
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
         table_non_db_friendly_columns = snowflake.query(
-            "SELECT * FROM {}.test_table_non_db_friendly_columns ORDER BY c_pk".format(target_schema))
+            f"SELECT * FROM {target_schema}.test_table_non_db_friendly_columns ORDER BY c_pk"
+        )
+
 
         self.assertEqual(
             table_non_db_friendly_columns,
@@ -525,7 +610,9 @@ class TestIntegration(unittest.TestCase):
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
         flattened_table = snowflake.query(
-            "SELECT * FROM {}.test_table_nested_schema ORDER BY c_pk".format(target_schema))
+            f"SELECT * FROM {target_schema}.test_table_nested_schema ORDER BY c_pk"
+        )
+
 
         # Should be flattened columns
         self.assertEqual(
@@ -555,9 +642,18 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(target_schema))
+        table_one = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_one ORDER BY c_pk"
+        )
+
+        table_two = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_two ORDER BY c_pk"
+        )
+
+        table_three = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_three ORDER BY c_pk"
+        )
+
 
         # Get the previous column name from information schema in test_table_two
         previous_column_name = snowflake.query("""
@@ -616,9 +712,18 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(target_schema))
+        table_one = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_one ORDER BY c_pk"
+        )
+
+        table_two = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_two ORDER BY c_pk"
+        )
+
+        table_three = snowflake.query(
+            f"SELECT * FROM {target_schema}.test_table_three ORDER BY c_pk"
+        )
+
 
         # Get the previous column name from information schema in test_table_two
         previous_column_name = snowflake.query("""

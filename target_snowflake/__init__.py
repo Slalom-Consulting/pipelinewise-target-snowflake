@@ -89,8 +89,8 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
 def emit_state(state):
     if state is not None:
         line = json.dumps(state)
-        LOGGER.info('Emitting state {}'.format(line))
-        sys.stdout.write("{}\n".format(line))
+        LOGGER.info(f'Emitting state {line}')
+        sys.stdout.write(f"{line}\n")
         sys.stdout.flush()
 
 
@@ -103,8 +103,10 @@ def get_schema_names_from_config(config):
         schema_names.append(default_target_schema)
 
     if schema_mapping:
-        for source_schema, target in schema_mapping.items():
-            schema_names.append(target.get('target_schema'))
+        schema_names.extend(
+            target.get('target_schema')
+            for source_schema, target in schema_mapping.items()
+        )
 
     return schema_names
 
@@ -168,20 +170,22 @@ def persist_lines(config, lines, table_cache=None) -> None:
         try:
             o = json.loads(line)
         except json.decoder.JSONDecodeError:
-            LOGGER.error("Unable to parse:\n{}".format(line))
+            LOGGER.error(f"Unable to parse:\n{line}")
             raise
 
         if 'type' not in o:
-            raise Exception("Line is missing required key 'type': {}".format(line))
+            raise Exception(f"Line is missing required key 'type': {line}")
 
         t = o['type']
 
         if t == 'RECORD':
             if 'stream' not in o:
-                raise Exception("Line is missing required key 'stream': {}".format(line))
+                raise Exception(f"Line is missing required key 'stream': {line}")
             if o['stream'] not in schemas:
                 raise Exception(
-                    "A record for stream {} was encountered before a corresponding schema".format(o['stream']))
+                    f"A record for stream {o['stream']} was encountered before a corresponding schema"
+                )
+
 
             # Get schema for this record's stream
             stream = o['stream']
@@ -202,7 +206,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             primary_key_string = stream_to_sync[stream].record_primary_key_string(o['record'])
             if not primary_key_string:
-                primary_key_string = 'RID-{}'.format(total_row_count[stream])
+                primary_key_string = f'RID-{total_row_count[stream]}'
 
             if stream not in records_to_load:
                 records_to_load[stream] = {}
@@ -220,11 +224,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             if row_count[stream] >= batch_size_rows:
                 # flush all streams, delete records if needed, reset counts and then emit current state
-                if config.get('flush_all_streams'):
-                    filter_streams = None
-                else:
-                    filter_streams = [stream]
-
+                filter_streams = None if config.get('flush_all_streams') else [stream]
                 # Flush and return a new state dict with new positions only for the flushed streams
                 flushed_state = flush_streams(
                     records_to_load,
@@ -240,7 +240,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
         elif t == 'SCHEMA':
             if 'stream' not in o:
-                raise Exception("Line is missing required key 'stream': {}".format(line))
+                raise Exception(f"Line is missing required key 'stream': {line}")
 
             stream = o['stream']
             new_schema = float_to_decimal(o['schema'])
@@ -274,7 +274,10 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 #  or
                 #  2) Use fastsync [postgres-to-snowflake, mysql-to-snowflake, etc.]
                 if config.get('primary_key_required', True) and len(o['key_properties']) == 0:
-                    LOGGER.critical("Primary key is set to mandatory but not defined in the [{}] stream".format(stream))
+                    LOGGER.critical(
+                        f"Primary key is set to mandatory but not defined in the [{stream}] stream"
+                    )
+
                     raise Exception("key_properties field is required")
 
                 key_properties[stream] = o['key_properties']
@@ -294,7 +297,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
             LOGGER.debug('ACTIVATE_VERSION message')
 
         elif t == 'STATE':
-            LOGGER.debug('Setting state to {}'.format(o['value']))
+            LOGGER.debug(f"Setting state to {o['value']}")
             state = o['value']
 
             # Initially set flushed state
@@ -302,9 +305,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 flushed_state = copy.deepcopy(state)
 
         else:
-            raise Exception("Unknown message type {} in message {}"
-                            .format(o['type'], o))
-
+            raise Exception(f"Unknown message type {t} in message {o}")
     # if some bucket has records that need to be flushed but haven't reached batch size
     # then flush all buckets.
     if sum(row_count.values()) > 0:
@@ -345,17 +346,9 @@ def flush_streams(
     # be loaded but it's not greater than the value of max_parallelism
     if parallelism == 0:
         n_streams_to_flush = len(streams.keys())
-        if n_streams_to_flush > max_parallelism:
-            parallelism = max_parallelism
-        else:
-            parallelism = n_streams_to_flush
-
+        parallelism = min(n_streams_to_flush, max_parallelism)
     # Select the required streams to flush
-    if filter_streams:
-        streams_to_flush = filter_streams
-    else:
-        streams_to_flush = streams.keys()
-
+    streams_to_flush = filter_streams or streams.keys()
     # Single-host, thread-based parallelism
     with parallel_backend('threading', n_jobs=parallelism):
         Parallel()(delayed(load_stream_batch)(

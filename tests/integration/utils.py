@@ -5,16 +5,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_db_config():
-    config = {}
+    config = {'account': os.environ.get('TARGET_SNOWFLAKE_ACCOUNT')}
 
-    # --------------------------------------------------------------------------
-    # Default configuration settings for integration tests.
-    # --------------------------------------------------------------------------
-    # The following values needs to be defined in environment variables with
-    # valid details to a Snowflake instace, AWS IAM role and an S3 bucket
-    # --------------------------------------------------------------------------
-    # Snowflake instance
-    config['account'] = os.environ.get('TARGET_SNOWFLAKE_ACCOUNT')
     config['dbname'] = os.environ.get('TARGET_SNOWFLAKE_DBNAME')
     config['user'] = os.environ.get('TARGET_SNOWFLAKE_USER')
     config['password'] = os.environ.get('TARGET_SNOWFLAKE_PASSWORD')
@@ -48,15 +40,11 @@ def get_db_config():
 
 
 def get_test_config():
-    db_config = get_db_config()
-
-    return db_config
+    return get_db_config()
 
 
 def get_test_tap_lines(filename):
     lines = []
-    with open('{}/resources/{}'.format(os.path.dirname(__file__), filename)) as tap_stdout:
-        for line in tap_stdout.readlines():
-            lines.append(line)
-
+    with open(f'{os.path.dirname(__file__)}/resources/{filename}') as tap_stdout:
+        lines.extend(iter(tap_stdout))
     return lines
