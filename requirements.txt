@@ -1,5 +1,6 @@
 idna==2.7
 singer-python==5.1.1
+cryptography==38.0.0
 snowflake-connector-python==2.0.3
 boto3==1.9.33
 inflection==0.3.1
