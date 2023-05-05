@@ -27,7 +27,8 @@ setup(name="pipelinewise-target-snowflake",
           'urllib3==1.24.3',
           'inflection==0.3.1',
           'joblib==0.16.0',
-          'python-dateutil==2.8.1'
+          'python-dateutil==2.8.1',
+          'importlib-resources==5.10.2'
       ],
       extras_require={
           "test": [
