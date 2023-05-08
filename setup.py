@@ -22,6 +22,7 @@ setup(name="pipelinewise-target-snowflake",
           'idna==2.7',
           'pipelinewise-singer-python==1.*',
           'cryptography==38.0.0',
+          'jsonschema==2.6.0',
           'snowflake-connector-python==2.0.3',
           'boto3==1.10.8',
           'botocore==1.13.8',
@@ -30,7 +31,7 @@ setup(name="pipelinewise-target-snowflake",
           'joblib==0.16.0',
           'python-dateutil==2.8.1',
           'importlib-resources==5.10.2',
-          'importlib-metadata==4.2.0'
+          'importlib-metadata==3.4.0'
       ],
       extras_require={
           "test": [
