@@ -7,6 +7,7 @@ with open('README.md') as f:
 
 setup(name="pipelinewise-target-snowflake",
       version="1.8.0",
+      python_requires='>3.8',
       description="Singer.io target for loading data to Snowflake - PipelineWise compatible",
       long_description=long_description,
       long_description_content_type='text/markdown',
@@ -18,15 +19,20 @@ setup(name="pipelinewise-target-snowflake",
       ],
       py_modules=["target_snowflake"],
       install_requires=[
+          'oscrypto @ git+https://github.com/wbond/oscrypto.git@d5f3437',
           'idna==2.7',
           'pipelinewise-singer-python==1.*',
+          'cryptography==38.0.0',
+          'jsonschema==3.2.0',
           'snowflake-connector-python==2.0.3',
           'boto3==1.10.8',
           'botocore==1.13.8',
           'urllib3==1.24.3',
           'inflection==0.3.1',
           'joblib==0.16.0',
-          'python-dateutil==2.8.1'
+          'python-dateutil==2.8.1',
+          'importlib-resources==5.10.2',
+          'importlib-metadata==3.4.0'
       ],
       extras_require={
           "test": [

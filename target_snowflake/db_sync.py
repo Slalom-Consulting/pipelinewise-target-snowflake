@@ -190,6 +190,39 @@ def stream_name_to_dict(stream_name, separator='-'):
         'table_name': table_name
     }
 
+
+def create_query_tag(query_tag_pattern: str, database: str = None, schema: str = None, table: str = None) -> str:
+    """
+    Generate a string to tag executed queries in Snowflake.
+    Replaces tokens `schema` and `table` with the appropriate values.
+    Example with tokens:
+        'Loading data into {schema}.{table}'
+    Args:
+        query_tag_pattern:
+        database: optional value to replace {{database}} token in query_tag_pattern
+        schema: optional value to replace {{schema}} token in query_tag_pattern
+        table: optional value to replace {{table}} token in query_tag_pattern
+    Returns:
+        String if query_tag_patter defined otherwise None
+    """
+    if not query_tag_pattern:
+        return None
+
+    query_tag = query_tag_pattern
+
+    # replace tokens, taking care of json formatted value compatibility
+    for k, v in {
+        '{{database}}': json.dumps(database.strip('"')).strip('"') if database else None,
+        '{{schema}}': json.dumps(schema.strip('"')).strip('"') if schema else None,
+        '{{table}}': json.dumps(table.strip('"')).strip('"') if table else None
+    }.items():
+        if k in query_tag:
+            query_tag = query_tag.replace(k, v or '')
+
+    return query_tag
+
+
+
 # pylint: disable=too-many-public-methods,too-many-instance-attributes
 class DbSync:
     def __init__(self, connection_config, stream_schema_message=None, table_cache=None):
@@ -317,16 +350,25 @@ class DbSync:
                                   endpoint_url=config.get('s3_endpoint_url'))
 
     def open_connection(self):
+
+        stream = None
+        if self.stream_schema_message:
+            stream = self.stream_schema_message['stream']
+
         return snowflake.connector.connect(
             user=self.connection_config['user'],
             password=self.connection_config['password'],
             account=self.connection_config['account'],
             database=self.connection_config['dbname'],
             warehouse=self.connection_config['warehouse'],
+            role=self.connection_config.get('role', None),
             autocommit=True,
             session_parameters={
                 # Quoted identifiers should be case sensitive
-                'QUOTED_IDENTIFIERS_IGNORE_CASE': 'FALSE'
+                'QUOTED_IDENTIFIERS_IGNORE_CASE': 'FALSE',
+                'QUERY_TAG' : create_query_tag(self.connection_config.get('query_tag'),
+                                                database=self.connection_config['dbname'],
+                                                schema=self.schema_name)
             }
         )
 

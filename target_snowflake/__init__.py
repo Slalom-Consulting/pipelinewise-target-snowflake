@@ -218,7 +218,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
             else:
                 records_to_load[stream][primary_key_string] = o['record']
 
-            if row_count[stream] >= batch_size_rows:
+            if row_count[stream] >= int(batch_size_rows):
                 # flush all streams, delete records if needed, reset counts and then emit current state
                 if config.get('flush_all_streams'):
                     filter_streams = None
