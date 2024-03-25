@@ -1,50 +1,44 @@
 #!/usr/bin/env python
 
-from setuptools import setup
+from setuptools import find_packages, setup
 
 with open('README.md') as f:
     long_description = f.read()
 
 setup(name="pipelinewise-target-snowflake",
-      version="1.8.0",
-      python_requires='>3.8',
+      version="2.2.0",
       description="Singer.io target for loading data to Snowflake - PipelineWise compatible",
       long_description=long_description,
       long_description_content_type='text/markdown',
-      author="TransferWise",
+      author="Wise",
       url='https://github.com/transferwise/pipelinewise-target-snowflake',
       classifiers=[
           'License :: OSI Approved :: Apache Software License',
-          'Programming Language :: Python :: 3 :: Only'
+          'Programming Language :: Python :: 3 :: Only',
+          'Programming Language :: Python :: 3.7',
+          'Programming Language :: Python :: 3.8',
+          'Programming Language :: Python :: 3.9',
       ],
       py_modules=["target_snowflake"],
+      python_requires='>=3.7',
       install_requires=[
-          'oscrypto @ git+https://github.com/wbond/oscrypto.git@d5f3437',
-          'idna==2.7',
           'pipelinewise-singer-python==1.*',
-          'cryptography==38.0.0',
-          'jsonschema==3.2.0',
-          'snowflake-connector-python==2.0.3',
-          'boto3==1.10.8',
-          'botocore==1.13.8',
-          'urllib3==1.24.3',
-          'inflection==0.3.1',
-          'joblib==0.16.0',
-          'python-dateutil==2.8.1',
-          'importlib-resources==5.10.2',
-          'importlib-metadata==3.4.0'
+          'snowflake-connector-python[pandas]==2.7.*',
+          'inflection==0.5.1',
+          'joblib==1.2.0',
+          'boto3==1.23.10',
       ],
       extras_require={
           "test": [
-              "nose==1.3.7",
-              "mock==3.0.5",
-              "pylint==2.4.2",
-              "python-dotenv==0.14.0"
+              "pylint==2.12.*",
+              'pytest==7.1.1',
+              'pytest-cov==3.0.0',
+              "python-dotenv==0.19.*"
           ]
       },
       entry_points="""
           [console_scripts]
           target-snowflake=target_snowflake:main
       """,
-      packages=["target_snowflake"],
+      packages=find_packages(exclude=['tests*']),
       )
