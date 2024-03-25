@@ -189,7 +189,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                         stream_archive_load_files_values['max'] = incremental_key_value
 
             flush = False
-            if row_count[stream] >= batch_size_rows:
+            if row_count[stream] >= int(batch_size_rows):
                 flush = True
                 LOGGER.info("Flush triggered by batch_size_rows (%s) reached in %s",
                             batch_size_rows, stream)
@@ -503,7 +503,7 @@ def flush_records(stream: str,
         db_sync.copy_to_archive(s3_key, archive_key, archive_metadata)
 
     # Delete file from S3
-    db_sync.delete_from_stage(stream, s3_key)
+    # db_sync.delete_from_stage(stream, s3_key)
 
 
 def main():

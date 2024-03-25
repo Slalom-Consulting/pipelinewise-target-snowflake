@@ -52,7 +52,24 @@ class S3UploadClient(BaseUploadClient):
         s3_key_prefix = self.connection_config.get('s3_key_prefix', '')
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
-        s3_key = f"{s3_key_prefix}pipelinewise_{stream}_{timestamp}_{os.path.basename(file)}"
+        #TODO: verify behavior:
+        # old behavior (current) would pass along the file name and extension
+        # new behavior (csv target) would strip the file name and only keep extension
+#        s3_key = f"{s3_key_prefix}pipelinewise_{stream}_{timestamp}_{os.path.basename(file)}"
+        
+        s3_file_naming_scheme = self.connection_config.get(
+            's3_file_naming_scheme', "pipelinewise_{stream}_{timecode}.{ext}"
+        )
+        s3_file_name = s3_file_naming_scheme
+        for k, v in {
+            "{stream}": stream,
+            "{timecode}": timestamp,
+            "{ext}": ".".join(file.replace("\\", "/").split("/")[-1].split(".")[1:])
+        }.items():
+            if k in s3_file_name:
+                s3_file_name = s3_file_name.replace(k, v)
+        s3_key = "{}{}".format(s3_key_prefix, s3_file_name)
+
         self.logger.info('Target S3 bucket: %s, local file: %s, S3 key: %s', bucket, file, s3_key)
 
         # Encrypt csv if client side encryption enabled

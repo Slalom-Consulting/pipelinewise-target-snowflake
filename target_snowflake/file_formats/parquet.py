@@ -95,7 +95,8 @@ def records_to_file(records: Dict,
         os.makedirs(dest_dir, exist_ok=True)
 
     if compression:
-        file_suffix = f'.{suffix}.gz'
+        # file_suffix = f'.{suffix}.gz'
+        file_suffix = f'.{suffix}'
         parquet_compression='gzip'
     else:
         file_suffix = f'.{suffix}'
