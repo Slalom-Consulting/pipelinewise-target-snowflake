@@ -1,4 +1,4 @@
-idna==2.7
+idna==3.7
 singer-python==5.1.1
 cryptography==38.0.0
 snowflake-connector-python==2.0.3
