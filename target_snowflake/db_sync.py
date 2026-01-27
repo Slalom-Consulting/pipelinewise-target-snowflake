@@ -67,6 +67,58 @@ def validate_config(config):
     if archive_load_files and not config.get('s3_bucket', None):
         errors.append('Archive load files option can be used only with external s3 stages. Please define s3_bucket.')
 
+    # Check truncate_before_load and soft_delete_before_load configuration
+    global_truncate = config.get('truncate_before_load', False)
+    global_soft_delete = config.get('soft_delete_before_load', False)
+    hard_delete = config.get('hard_delete', False)
+    add_metadata_columns = config.get('add_metadata_columns', False)
+    confirm_destructive = config.get('confirm_destructive_operation', '')
+    
+    # Check global mutual exclusivity
+    if global_truncate and global_soft_delete:
+        errors.append("'truncate_before_load' and 'soft_delete_before_load' cannot both be enabled globally.")
+    
+    # Check soft_delete_before_load dependencies and conflicts globally
+    if global_soft_delete:
+        if not add_metadata_columns:
+            errors.append("'soft_delete_before_load' requires 'add_metadata_columns' to be enabled.")
+        if hard_delete:
+            errors.append("'soft_delete_before_load' and 'hard_delete' cannot both be enabled.")
+    
+    # Check per-stream configuration in schema_mapping
+    config_schema_mapping = config.get('schema_mapping', {})
+    streams_with_destructive_ops = set()
+    
+    for stream_name, stream_config in config_schema_mapping.items():
+        stream_truncate = stream_config.get('truncate_before_load', global_truncate)
+        stream_soft_delete = stream_config.get('soft_delete_before_load', global_soft_delete)
+        
+        # Check per-stream mutual exclusivity
+        if stream_truncate and stream_soft_delete:
+            errors.append(f"Stream '{stream_name}': 'truncate_before_load' and 'soft_delete_before_load' cannot both be enabled.")
+        
+        # Check per-stream soft_delete dependencies and conflicts
+        if stream_soft_delete:
+            if not add_metadata_columns:
+                errors.append(f"Stream '{stream_name}': 'soft_delete_before_load' requires 'add_metadata_columns' to be enabled globally.")
+            if hard_delete:
+                errors.append(f"Stream '{stream_name}': 'soft_delete_before_load' and 'hard_delete' cannot both be enabled.")
+        
+        # Track streams with destructive operations
+        if stream_truncate or stream_soft_delete:
+            streams_with_destructive_ops.add(stream_name)
+    
+    # Check if any destructive operations are enabled
+    has_destructive_ops = global_truncate or global_soft_delete or len(streams_with_destructive_ops) > 0
+    
+    # Require confirmation for destructive operations
+    if has_destructive_ops and confirm_destructive != 'YES':
+        errors.append("'confirm_destructive_operation' must be set to 'YES' when 'truncate_before_load' or 'soft_delete_before_load' is enabled.")
+    
+    # Auto-set primary_key_required to False when destructive operations are enabled
+    if has_destructive_ops and config.get('primary_key_required', True):
+        config['primary_key_required'] = False
+
     return errors
 
 
@@ -597,6 +649,33 @@ class DbSync:
         query = f"DELETE FROM {table} WHERE _sdc_deleted_at IS NOT NULL"
         self.logger.info("Deleting rows from '%s' table... %s", table, query)
         self.logger.info('DELETE %d', len(self.query(query)))
+
+    def truncate_table(self, stream):
+        """Truncate target table before loading"""
+        table = self.table_name(stream, False)
+        query = f"TRUNCATE TABLE IF EXISTS {table}"
+        self.logger.info("Truncating table '%s'... %s", table, query)
+        try:
+            result = self.query(query)
+            self.logger.info("Successfully truncated table '%s'", table)
+            return result
+        except Exception as ex:
+            self.logger.error("Failed to truncate table '%s': %s", table, str(ex))
+            raise
+
+    def soft_delete_all_records(self, stream):
+        """Soft delete all records in target table before loading"""
+        table = self.table_name(stream, False)
+        query = f"UPDATE {table} SET _sdc_deleted_at = CURRENT_TIMESTAMP() WHERE _sdc_deleted_at IS NULL"
+        self.logger.info("Soft deleting all records in table '%s'... %s", table, query)
+        try:
+            result = self.query(query)
+            affected_rows = len(result) if result else 0
+            self.logger.info("Soft deleted %d records in table '%s'", affected_rows, table)
+            return result
+        except Exception as ex:
+            self.logger.error("Failed to soft delete records in table '%s': %s", table, str(ex))
+            raise
 
     def create_schema_if_not_exists(self):
         """Create target schema if not exists"""

@@ -116,6 +116,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
     flush_timestamp = datetime.utcnow()
     archive_load_files = config.get('archive_load_files', False)
     archive_load_files_data = {}
+    streams_with_destructive_ops_executed = set()  # Track streams that have already been truncated/soft deleted
 
     # Loop over lines from stdin
     for line in lines:
@@ -215,7 +216,8 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                     state,
                     flushed_state,
                     archive_load_files_data,
-                    filter_streams=filter_streams)
+                    filter_streams=filter_streams,
+                    streams_with_destructive_ops_executed=streams_with_destructive_ops_executed)
 
                 flush_timestamp = datetime.utcnow()
 
@@ -252,7 +254,8 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                                                   state,
                                                   flushed_state,
                                                   archive_load_files_data,
-                                                  filter_streams=filter_streams)
+                                                  filter_streams=filter_streams,
+                                                  streams_with_destructive_ops_executed=streams_with_destructive_ops_executed)
 
                     # emit latest encountered state
                     emit_state(flushed_state)
@@ -329,7 +332,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
     if sum(row_count.values()) > 0:
         # flush all streams one last time, delete records if needed, reset counts and then emit current state
         flushed_state = flush_streams(records_to_load, row_count, stream_to_sync, config, state, flushed_state,
-                                      archive_load_files_data)
+                                      archive_load_files_data, streams_with_destructive_ops_executed=streams_with_destructive_ops_executed)
 
     # emit latest state
     emit_state(copy.deepcopy(flushed_state))
@@ -344,7 +347,8 @@ def flush_streams(
         state,
         flushed_state,
         archive_load_files_data,
-        filter_streams=None):
+        filter_streams=None,
+        streams_with_destructive_ops_executed=None):
     """
     Flushes all buckets and resets records count to 0 as well as empties records to load list
     :param streams: dictionary with records to load per stream
@@ -355,6 +359,7 @@ def flush_streams(
     :param flushed_state: dictionary containing updated states only when streams got flushed
     :param filter_streams: Keys of streams to flush from the streams dict. Default is every stream
     :param archive_load_files_data: dictionary of dictionaries containing archive load files data
+    :param streams_with_destructive_ops_executed: set of streams that have already had truncate/soft delete executed
     :return: State dict with flushed positions
     """
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
@@ -377,6 +382,50 @@ def flush_streams(
         streams_to_flush = filter_streams
     else:
         streams_to_flush = streams.keys()
+
+    # Execute pre-load operations (truncate or soft delete) before loading data
+    # These operations must complete before any data is loaded
+    # IMPORTANT: Only execute once per stream per run, even if stream is flushed multiple times
+    if streams_with_destructive_ops_executed is None:
+        streams_with_destructive_ops_executed = set()
+    
+    global_truncate = config.get('truncate_before_load', False)
+    global_soft_delete = config.get('soft_delete_before_load', False)
+    config_schema_mapping = config.get('schema_mapping', {})
+    
+    for stream in streams_to_flush:
+        # Skip if no records to load
+        if row_count.get(stream, 0) == 0:
+            continue
+        
+        # Skip if we've already executed the destructive operation for this stream
+        if stream in streams_with_destructive_ops_executed:
+            continue
+            
+        # Get stream schema name for config lookup
+        stream_name_parts = stream_utils.stream_name_to_dict(stream)
+        stream_schema_name = stream_name_parts.get('schema_name', '')
+        
+        # Resolve truncate/soft delete config with stream-level override
+        stream_config = config_schema_mapping.get(stream_schema_name, {})
+        truncate_enabled = stream_config.get('truncate_before_load', global_truncate)
+        soft_delete_enabled = stream_config.get('soft_delete_before_load', global_soft_delete)
+        
+        # Execute pre-load operation if enabled (only once per stream)
+        if truncate_enabled or soft_delete_enabled:
+            db_sync = stream_to_sync[stream]
+            try:
+                if truncate_enabled:
+                    LOGGER.info("Executing truncate operation for stream '%s' (first flush only)", stream)
+                    db_sync.truncate_table(stream)
+                elif soft_delete_enabled:
+                    LOGGER.info("Executing soft delete operation for stream '%s' (first flush only)", stream)
+                    db_sync.soft_delete_all_records(stream)
+                # Mark this stream as having had its destructive operation executed
+                streams_with_destructive_ops_executed.add(stream)
+            except Exception as ex:
+                LOGGER.error("Pre-load operation failed for stream '%s': %s", stream, str(ex))
+                raise
 
     # Single-host, thread-based parallelism
     with parallel_backend('threading', n_jobs=parallelism):
