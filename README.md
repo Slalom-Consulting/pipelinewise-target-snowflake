@@ -156,11 +156,87 @@ Full list of options in `config.json`:
 | client_side_encryption_stage_object | String  |            | (Default: None) Required when `client_side_encryption_master_key` is defined. The name of the encrypted stage object in Snowflake that created separately and using the same encryption master key. |
 | add_metadata_columns                | Boolean |            | (Default: False) Metadata columns add extra row level information about data ingestions, (i.e. when was the row read in source, when was inserted or deleted in snowflake etc.) Metadata columns are creating automatically by adding extra columns to the tables with a column prefix `_SDC_`. The column names are following the stitch naming conventions documented at https://www.stitchdata.com/docs/data-structure/integration-schemas#sdc-columns. Enabling metadata columns will flag the deleted rows by setting the `_SDC_DELETED_AT` metadata column. Without the `add_metadata_columns` option the deleted rows from singer taps will not be recongisable in Snowflake. |
 | hard_delete                         | Boolean |            | (Default: False) When `hard_delete` option is true then DELETE SQL commands will be performed in Snowflake to delete rows in tables. It's achieved by continuously checking the  `_SDC_DELETED_AT` metadata column sent by the singer tap. Due to deleting rows requires metadata columns, `hard_delete` option automatically enables the `add_metadata_columns` option as well. |
+| truncate_before_load                | Boolean |            | (Default: False) When enabled, truncates (deletes all rows from) the target table before loading each batch. Useful for full dataset extracts where you want to replace all data. **WARNING: This will delete all existing data in the table.** Mutually exclusive with `soft_delete_before_load`. Automatically sets `primary_key_required` to False. Requires `confirm_destructive_operation` to be set to "YES". Can be overridden per-stream in `schema_mapping`. |
+| soft_delete_before_load             | Boolean |            | (Default: False) When enabled, marks all existing records as deleted (sets `_sdc_deleted_at` to current timestamp) before loading each batch. Useful for full dataset extracts where you want to preserve history. Requires `add_metadata_columns` to be enabled. **WARNING: This will mark all existing records as deleted.** Mutually exclusive with `truncate_before_load` and `hard_delete`. Automatically sets `primary_key_required` to False. Requires `confirm_destructive_operation` to be set to "YES". Can be overridden per-stream in `schema_mapping`. |
+| confirm_destructive_operation       | String  |            | Required when `truncate_before_load` or `soft_delete_before_load` is enabled. Must be set to the string "YES" (case-sensitive) to confirm that you understand these operations will modify or delete existing data. This is a safety mechanism to prevent accidental data loss. |
 | data_flattening_max_level           | Integer |            | (Default: 0) Object type RECORD items from taps can be loaded into VARIANT columns as JSON (default) or we can flatten the schema by creating columns automatically.<br><br>When value is 0 (default) then flattening functionality is turned off. |
 | primary_key_required                | Boolean |            | (Default: True) Log based and Incremental replications on tables with no Primary Key cause duplicates when merging UPDATE events. When set to true, stop loading data if no Primary Key is defined. |
 | validate_records                    | Boolean |            | (Default: False) Validate every single record message to the corresponding JSON schema. This option is disabled by default and invalid RECORD messages will fail only at load time by Snowflake. Enabling this option will detect invalid records earlier but could cause performance degradation. |
 | temp_dir                            | String  |            | (Default: platform-dependent) Directory of temporary CSV files with RECORD messages. |
 | no_compression                      | Boolean |            | (Default: False) Generate uncompressed CSV files when loading to Snowflake. Normally, by default GZIP compressed files are generated. |
+
+### Configuration Examples
+
+#### Truncate Before Load (Global)
+
+Use this configuration for full dataset extracts where you want to completely replace all data in tables:
+
+```json
+{
+  "account": "rtxxxxx.eu-central-1",
+  "dbname": "database_name",
+  "user": "my_user",
+  "password": "password",
+  "warehouse": "my_virtual_warehouse",
+  "s3_bucket": "bucket_name",
+  "stage": "snowflake_external_stage_object_name",
+  "file_format": "snowflake_file_format_object_name",
+  "default_target_schema": "my_target_schema",
+  "truncate_before_load": true,
+  "confirm_destructive_operation": "YES"
+}
+```
+
+#### Soft Delete Before Load (Global with Metadata)
+
+Use this configuration for full dataset extracts where you want to preserve historical data:
+
+```json
+{
+  "account": "rtxxxxx.eu-central-1",
+  "dbname": "database_name",
+  "user": "my_user",
+  "password": "password",
+  "warehouse": "my_virtual_warehouse",
+  "s3_bucket": "bucket_name",
+  "stage": "snowflake_external_stage_object_name",
+  "file_format": "snowflake_file_format_object_name",
+  "default_target_schema": "my_target_schema",
+  "add_metadata_columns": true,
+  "soft_delete_before_load": true,
+  "confirm_destructive_operation": "YES"
+}
+```
+
+#### Per-Stream Configuration
+
+Use this configuration to apply different load strategies to different streams:
+
+```json
+{
+  "account": "rtxxxxx.eu-central-1",
+  "dbname": "database_name",
+  "user": "my_user",
+  "password": "password",
+  "warehouse": "my_virtual_warehouse",
+  "s3_bucket": "bucket_name",
+  "stage": "snowflake_external_stage_object_name",
+  "file_format": "snowflake_file_format_object_name",
+  "default_target_schema": "my_target_schema",
+  "add_metadata_columns": true,
+  "confirm_destructive_operation": "YES",
+  "schema_mapping": {
+    "my_schema": {
+      "target_schema": "my_snowflake_schema",
+      "truncate_before_load": true
+    },
+    "another_schema": {
+      "target_schema": "another_snowflake_schema",
+      "soft_delete_before_load": true
+    }
+  }
+}
+```
 
 ### To run tests:
 
