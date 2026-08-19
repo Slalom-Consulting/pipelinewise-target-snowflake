@@ -1,7 +1,11 @@
+import base64
 import json
 import unittest
 
 from unittest.mock import patch, call
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from target_snowflake import db_sync
 from target_snowflake.exceptions import PrimaryKeyNotFoundException
@@ -87,10 +91,83 @@ class TestDBSync(unittest.TestCase):
         config_with_external_stage['stage'] = 'dummy-value'
         self.assertGreater(len(validator(config_with_external_stage)), 0)
 
+        # Key pair auth: private_key instead of password should pass
+        config_with_private_key = minimal_config.copy()
+        config_with_private_key.pop('password')
+        config_with_private_key['private_key'] = 'dummy-value'
+        self.assertEqual(len(validator(config_with_private_key)), 0)
+
+        # Neither password nor private_key should fail with an auth-specific error
+        config_with_no_auth = minimal_config.copy()
+        config_with_no_auth.pop('password')
+        errors = validator(config_with_no_auth)
+        self.assertGreater(len(errors), 0)
+        self.assertTrue(any('authentication' in e for e in errors))
+
         # Configuration with archive_load_files but no s3_bucket
         config_with_archive_load_files = minimal_config.copy()
         config_with_archive_load_files['archive_load_files'] = True
         self.assertGreater(len(validator(config_with_external_stage)), 0)
+
+    def test_decode_private_key(self):
+        """A private key arrives as a config string, in one of three encodings"""
+        pem = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        ).private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode()
+
+        # Raw PEM with real newlines, as AWS SSM Parameter Store delivers it
+        self.assertEqual(db_sync.decode_private_key(pem), pem)
+
+        # Escaped newlines, as survives JSON encoding
+        self.assertEqual(db_sync.decode_private_key(pem.replace('\n', '\\n')), pem)
+
+        # Base64 of the whole PEM document
+        self.assertEqual(
+            db_sync.decode_private_key(base64.b64encode(pem.encode()).decode()), pem)
+
+    def test_get_private_key(self):
+        """get_private_key returns DER bytes, or None when key pair auth is unused"""
+        pem = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        ).private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode()
+
+        der = db_sync.get_private_key({'private_key': pem})
+        self.assertIsInstance(der, bytes)
+        self.assertGreater(len(der), 0)
+
+        # Absent key means the password path is in use, not an error
+        self.assertIsNone(db_sync.get_private_key({}))
+        self.assertIsNone(db_sync.get_private_key({'private_key': ''}))
+
+    def test_get_private_key_with_passphrase(self):
+        """An encrypted key is decrypted using private_key_passphrase"""
+        passphrase = b'dummy-passphrase'
+        pem = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        ).private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(passphrase)
+        ).decode()
+
+        der = db_sync.get_private_key({
+            'private_key': pem,
+            'private_key_passphrase': passphrase.decode()
+        })
+        self.assertIsInstance(der, bytes)
+        self.assertGreater(len(der), 0)
+
+        # Without the passphrase the key cannot be loaded
+        with self.assertRaises(TypeError):
+            db_sync.get_private_key({'private_key': pem})
 
     def test_column_type_mapping(self):
         """Test JSON type to Snowflake column type mappings"""

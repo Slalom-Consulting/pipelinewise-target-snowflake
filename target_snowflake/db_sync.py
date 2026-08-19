@@ -1,10 +1,14 @@
+import base64
 import json
 import sys
+import backoff
 import snowflake.connector
 import re
 import time
 
 from typing import List, Dict, Union, Tuple, Set
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from singer import get_logger
 from target_snowflake import flattening
 from target_snowflake import stream_utils
@@ -14,6 +18,8 @@ from target_snowflake.exceptions import TooManyRecordsException, PrimaryKeyNotFo
 from target_snowflake.upload_clients.s3_upload_client import S3UploadClient
 from target_snowflake.upload_clients.snowflake_upload_client import SnowflakeUploadClient
 
+LOGGER = get_logger('target_snowflake')
+
 
 def validate_config(config):
     """Validate configuration"""
@@ -22,7 +28,6 @@ def validate_config(config):
         'account',
         'dbname',
         'user',
-        'password',
         'warehouse',
         's3_bucket',
         'stage',
@@ -33,9 +38,16 @@ def validate_config(config):
         'account',
         'dbname',
         'user',
-        'password',
         'warehouse',
         'file_format'
+    ]
+
+    # Authentication is either-or rather than required: 'password' or 'private_key'.
+    # Snowflake is blocking single-factor password auth for service users, so key pair
+    # auth must be usable without a password present in config at all.
+    possible_authentication_keys = [
+        'password',
+        'private_key'
     ]
 
     required_config_keys = []
@@ -55,6 +67,12 @@ def validate_config(config):
     for k in required_config_keys:
         if not config.get(k, None):
             errors.append(f"Required key is missing from config: [{k}]")
+
+    # Check that at least one authentication method is configured
+    if not any(config.get(k, None) for k in possible_authentication_keys):
+        errors.append(
+            f"Required authentication key missing. "
+            f"Existing methods: {','.join(possible_authentication_keys)}")
 
     # Check target schema config
     config_default_target_schema = config.get('default_target_schema', None)
@@ -181,6 +199,80 @@ def column_clause(name, schema_property):
 def primary_column_names(stream_schema_message):
     """Generate list of SQL friendly PK column names"""
     return [safe_column_name(p) for p in stream_schema_message['key_properties']]
+
+
+def log_backoff_attempt(details):
+    """Log backoff attempts used by retry_pattern"""
+    LOGGER.info('Error detected communicating with Snowflake, triggering backoff: %d try',
+                details.get('tries'))
+
+
+def retry_pattern():
+    """
+    Retry decorator for opening a Snowflake connection.
+
+    The tap side has had this since inception; the target had no retry at all, so a
+    transient OperationalError would fail the whole ECS task.
+    """
+    return backoff.on_exception(backoff.expo,
+                                snowflake.connector.errors.OperationalError,
+                                max_tries=5,
+                                on_backoff=log_backoff_attempt,
+                                factor=2)
+
+
+def decode_private_key(private_key: str) -> str:
+    """
+    Normalise a private key supplied as a string into PEM format.
+
+    The key arrives as a config value rather than a file path, because tapdance
+    passes all plugin config through environment variables (the orchestration layer
+    sets CONFIG_FILE=False) and there is no file on disk to point at. Accepts the
+    three shapes the key can arrive in:
+
+    1. Escaped newlines, i.e. literal backslash-n, as happens via JSON encoding
+    2. Base64 of the whole PEM document
+    3. Already-valid PEM with real newlines, which is what AWS SSM Parameter Store
+       passes through untouched
+
+    Mirrors the approach already proven for JWT auth in tap-salesforce.
+    """
+    if '\\n' in private_key:
+        return private_key.replace('\\n', '\n')
+
+    try:
+        decoded = base64.b64decode(
+            private_key.replace(' ', '').replace('\n', '')).decode('utf-8')
+        if decoded.strip().startswith('-----BEGIN'):
+            return decoded
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+    return private_key
+
+
+def get_private_key(connection_config):
+    """
+    Return the private key as DER bytes for the Snowflake connector, or None when
+    key pair auth is not configured.
+    """
+    private_key = connection_config.get('private_key')
+    if not private_key:
+        return None
+
+    passphrase = connection_config.get('private_key_passphrase')
+    encoded_passphrase = passphrase.encode() if passphrase else None
+
+    p_key = serialization.load_pem_private_key(
+        decode_private_key(private_key).encode(),
+        password=encoded_passphrase,
+        backend=default_backend()
+    )
+
+    return p_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption())
 
 
 # pylint: disable=invalid-name
@@ -337,6 +429,7 @@ class DbSync:
         else:
             self.upload_client = SnowflakeUploadClient(connection_config, self)
 
+    @retry_pattern()
     def open_connection(self):
         """Open snowflake connection"""
         stream = None
@@ -345,7 +438,8 @@ class DbSync:
 
         return snowflake.connector.connect(
             user=self.connection_config['user'],
-            password=self.connection_config['password'],
+            password=self.connection_config.get('password', None),
+            private_key=get_private_key(self.connection_config),
             account=self.connection_config['account'],
             database=self.connection_config['dbname'],
             warehouse=self.connection_config['warehouse'],

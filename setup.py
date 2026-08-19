@@ -29,6 +29,11 @@ setup(name="pipelinewise-target-snowflake",
           'joblib==1.2.0',
           'boto3>=1.23.10,<2.0.0',
           'numpy>=1.21.0,<2.0.0',
+          # Imported directly by db_sync for key pair auth and connection retry.
+          # Both previously arrived only transitively, via the connector and
+          # pipelinewise-singer-python respectively.
+          'cryptography',
+          'backoff',
       ],
       extras_require={
           "test": [
