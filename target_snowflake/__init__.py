@@ -551,7 +551,12 @@ def flush_records(stream: str,
 
         db_sync.copy_to_archive(s3_key, archive_key, archive_metadata)
 
-    # Delete file from S3
+    # Delete file from S3 -- INTENTIONALLY DISABLED, do not re-enable.
+    # The staged parquet files are read back by external tables in the analytics repo
+    # (see data/transforms/sources/raw_historical/, which points at
+    # @RAW_DB.META.DATA_PLATFORM_S3_STAGE_PARQUET/parquet/raw/<tap>/<table>/).
+    # Deleting them here silently breaks the historical / "Back to the Future" models.
+    # If S3 growth needs managing, use a bucket lifecycle policy instead.
     # db_sync.delete_from_stage(stream, s3_key)
 
 
